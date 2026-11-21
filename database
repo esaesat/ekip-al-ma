@@ -19,13 +19,14 @@ class Database:
             print(f"Veritabanı bağlantı hatası: {e}")
 
     def create_table(self):
-        """Harcamalar tablosunu oluşturur (eğer yoksa)."""
+        """Tabloları oluşturur (gelir ve gider türü desteğiyle)."""
         try:
             self.cursor.execute("""
-                CREATE TABLE IF NOT EXISTS expenses (
+                CREATE TABLE IF NOT EXISTS transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT NOT NULL,
                     amount REAL NOT NULL,
+                    type TEXT NOT NULL, -- 'gider' veya 'gelir'
                     category TEXT NOT NULL,
                     description TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -35,25 +36,25 @@ class Database:
         except sqlite3.Error as e:
             print(f"Tablo oluşturma hatası: {e}")
 
-    def add_expense(self, user_id, amount, category, description):
-        """Veritabanına yeni bir harcama kaydı ekler."""
+    def add_transaction(self, user_id, amount, trans_type, category, description):
+        """Gelir veya gider kaydı ekler."""
         try:
             self.cursor.execute("""
-                INSERT INTO expenses (user_id, amount, category, description)
-                VALUES (?, ?, ?, ?)
-            """, (user_id, amount, category, description))
+                INSERT INTO transactions (user_id, amount, type, category, description)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, amount, trans_type, category, description))
             self.conn.commit()
             return True
         except sqlite3.Error as e:
-            print(f"Harcama eklenemedi: {e}")
+            print(f"Kayıt eklenemedi: {e}")
             return False
 
     def get_daily_summary(self, user_id):
-        """Bugüne ait harcamaları kategorilere göre gruplayarak getirir."""
+        """Bugüne ait giderleri kategorilere göre gruplayarak getirir."""
         try:
             self.cursor.execute("""
-                SELECT category, SUM(amount) FROM expenses
-                WHERE user_id = ? AND DATE(created_at) = DATE('now')
+                SELECT category, SUM(amount) FROM transactions
+                WHERE user_id = ? AND type = 'gider' AND DATE(created_at) = DATE('now')
                 GROUP BY category
             """, (user_id,))
             return self.cursor.fetchall()
@@ -61,7 +62,21 @@ class Database:
             print(f"Özet çekme hatası: {e}")
             return []
 
+    def get_last_transactions(self, user_id, limit=30):
+        """Son yapılan işlemleri (gelir ve giderleri) getirir."""
+        try:
+            self.cursor.execute("""
+                SELECT amount, type, category, description, created_at FROM transactions
+                WHERE user_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+            """, (user_id, limit))
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Son işlemleri çekme hatası: {e}")
+            return []
+
     def __del__(self):
-        """Nesne silindiğinde veritabanı bağlantısını güvenle kapatır."""
+        """Nesne silindiğinde veritabanı bağlantısını kapatır."""
         if self.conn:
             self.conn.close()
