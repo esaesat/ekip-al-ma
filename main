@@ -1,0 +1,62 @@
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+from database import Database
+from logic import ExpenseLogic
+
+db = Database()
+logic = ExpenseLogic(db)
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+class ExpenseBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        await self.tree.sync()
+        print("Slash komutları senkronize edildi!")
+
+bot = ExpenseBot()
+
+@bot.event
+async def on_ready():
+    print(f"Bot başarıyla giriş yaptı: {bot.user}")
+
+@bot.tree.command(name="harcama-ekle", description="Günlük harcama kaydı ekler.")
+@app_commands.describe(
+    tutar="Harcanan miktar (Örn: 150.50)",
+    kategori="Harcama kategorisi (Örn: Yemek, Ulaşım)",
+    aciklama="İsteğe bağlı açıklama"
+)
+async def harcama_ekle(interaction: discord.Interaction, tutar: float, kategori: str, aciklama: str = "Açıklama yok"):
+    user_id = str(interaction.user.id)
+    
+    success = logic.process_and_add_expense(user_id, tutar, kategori, aciklama)
+    
+    if success:
+        await interaction.response.send_message(f"✅ Başarılı! **{tutar} TL** ({kategori}) harcaman kaydedildi.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Harcama eklenemedi! Tutar 0'dan büyük olmalıdır.", ephemeral=True)
+
+@bot.tree.command(name="ozet", description="Bugüne ait harcama özetini gösterir.")
+async def ozet(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    rows = db.get_daily_summary(user_id)
+    
+    if not rows:
+        await interaction.response.send_message("📅 Bugün henüz kayıtlı bir harcaman yok.", ephemeral=True)
+        return
+    report_text = "📊 **Bugünkü Harcama Özetin:**\n\n"
+    total_spent = 0
+    for category, total in rows:
+        report_text += f"- **{category}**: {total} TL\n"
+        total_spent += total
+        
+    report_text += f"\n💰 **Genel Toplam**: {total_spent} TL"
+    
+    await interaction.response.send_message(report_text, ephemeral=True)
+
+bot.run("token")
