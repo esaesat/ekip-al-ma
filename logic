@@ -4,19 +4,19 @@ class ExpenseLogic:
     def __init__(self, db: Database):
         self.db = db
 
-    def process_and_add_expense(self, user_id, amount, category, description):
+    def process_and_add_transaction(self, user_id, amount, trans_type, category, description):
         # İş Kuralı: Tutar 0 veya daha küçük olamaz!
         if amount <= 0:
-            print("[Hata] Geçersiz harcama tutarı! Tutar 0'dan büyük olmalıdır.")
+            print("[Hata] Geçersiz tutar! Tutar 0'dan büyük olmalıdır.")
             return False
 
-        # Kategori boşsa "Genel" yapalım
-        final_category = category if category else "Genel"
+        # Varsayılan değerler
+        final_category = category if category else ("Maaş/Gelir" if trans_type == "gelir" else "Genel")
         final_desc = description if description else "Açıklama girilmedi"
 
-        success = self.db.add_expense(user_id, amount, final_category, final_desc)
+        success = self.db.add_transaction(user_id, amount, trans_type, final_category, final_desc)
         if success:
-            print("[Başarılı] Harcama veritabanına kaydedildi.")
+            print(f"[Başarılı] {trans_type} veritabanına kaydedildi.")
         return success
 
     def generate_daily_report(self, user_id):
@@ -24,7 +24,7 @@ class ExpenseLogic:
         rows = self.db.get_daily_summary(user_id)
         
         if not rows:
-            print("Bugün henüz kayıtlı bir harcamanız yok.")
+            print("Bugün henüz kayıtlı bir gideriniz yok.")
             return
             
         total_spent = 0
@@ -32,5 +32,26 @@ class ExpenseLogic:
             print(f"Kategori: {category} | Toplam: {total} TL")
             total_spent += total
             
-        print(f"Genel Toplam: {total_spent} TL")
+        print(f"Genel Toplam Gider: {total_spent} TL")
         print("=======================\n")
+
+    def get_last_transactions_report(self, user_id, limit=30):
+        """Son işlemleri ve net bakiye durumunu hazırlar."""
+        rows = self.db.get_last_transactions(user_id, limit)
+        
+        if not rows:
+            return None, 0
+            
+        total_balance = 0
+        report_lines = []
+        
+        for amount, trans_type, category, description, created_at in rows:
+            short_date = created_at[:16] if created_at else ""
+            if trans_type == "gelir":
+                report_lines.append(f"• **{short_date}** | 🟢 **+{amount} TL** (Gelir - {category}) : {description}")
+                total_balance += amount
+            else:
+                report_lines.append(f"• **{short_date}** | 🔴 **-{amount} TL** (Gider - {category}) : {description}")
+                total_balance -= amount
+            
+        return report_lines, total_balance
