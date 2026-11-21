@@ -1,4 +1,3 @@
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -16,14 +15,18 @@ class ExpenseBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        await self.tree.sync()
-        print("Slash komutları senkronize edildi!")
+        print("Setup hook çalıştı...")
 
 bot = ExpenseBot()
 
 @bot.event
 async def on_ready():
     print(f"Bot başarıyla giriş yaptı: {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Toplam {len(synced)} slash komutu senkronize edildi.")
+    except Exception as e:
+        print(f"Komutlar senkronize edilemedi: {e}")
 
 @bot.tree.command(name="harcama-ekle", description="Günlük harcama kaydı ekler.")
 @app_commands.describe(
@@ -33,30 +36,76 @@ async def on_ready():
 )
 async def harcama_ekle(interaction: discord.Interaction, tutar: float, kategori: str, aciklama: str = "Açıklama yok"):
     user_id = str(interaction.user.id)
-    
-    success = logic.process_and_add_expense(user_id, tutar, kategori, aciklama)
+    success = logic.process_and_add_transaction(user_id, tutar, "gider", kategori, aciklama)
     
     if success:
         await interaction.response.send_message(f"✅ Başarılı! **{tutar} TL** ({kategori}) harcaman kaydedildi.", ephemeral=True)
     else:
         await interaction.response.send_message("❌ Harcama eklenemedi! Tutar 0'dan büyük olmalıdır.", ephemeral=True)
 
-@bot.tree.command(name="ozet", description="Bugüne ait harcama özetini gösterir.")
+@bot.tree.command(name="gider", description="Hızlıca miktar girerek harcama kaydeder.")
+@app_commands.describe(
+    miktar="Harcanan miktar (Örn: 150)",
+    kategori="İsteğe bağlı kategori (Varsayılan: Genel)",
+    aciklama="İsteğe bağlı açıklama"
+)
+async def gider(interaction: discord.Interaction, miktar: float, kategori: str = "Genel", aciklama: str = "Açıklama yok"):
+    user_id = str(interaction.user.id)
+    success = logic.process_and_add_transaction(user_id, miktar, "gider", kategori, aciklama)
+    
+    if success:
+        await interaction.response.send_message(f"✅ Başarılı! **{miktar} TL** ({kategori}) harcaman kaydedildi.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Harcama eklenemedi! Tutar 0'dan büyük olmalıdır.", ephemeral=True)
+
+@bot.tree.command(name="girdi", description="Maaş veya ek gelir kaydeder.")
+@app_commands.describe(
+    miktar="Gelir miktarı (Örn: 15000)",
+    kategori="İsteğe bağlı kategori (Örn: Maaş, Ek İş)",
+    aciklama="İsteğe bağlı açıklama"
+)
+async def girdi(interaction: discord.Interaction, miktar: float, kategori: str = "Maaş", aciklama: str = "Açıklama yok"):
+    user_id = str(interaction.user.id)
+    success = logic.process_and_add_transaction(user_id, miktar, "gelir", kategori, aciklama)
+    
+    if success:
+        await interaction.response.send_message(f"✅ Başarılı! **+{miktar} TL** ({kategori}) gelirin kaydedildi.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Gelir eklenemedi! Tutar 0'dan büyük olmalıdır.", ephemeral=True)
+
+@bot.tree.command(name="ozet", description="Bugüne ait gider özetini gösterir.")
 async def ozet(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     rows = db.get_daily_summary(user_id)
     
     if not rows:
-        await interaction.response.send_message("📅 Bugün henüz kayıtlı bir harcaman yok.", ephemeral=True)
+        await interaction.response.send_message("📅 Bugün henüz kayıtlı bir giderin yok.", ephemeral=True)
         return
-    report_text = "📊 **Bugünkü Harcama Özetin:**\n\n"
+        
+    report_text = "📊 **Bugünkü Gider Özetin:**\n\n"
     total_spent = 0
     for category, total in rows:
         report_text += f"- **{category}**: {total} TL\n"
         total_spent += total
         
-    report_text += f"\n💰 **Genel Toplam**: {total_spent} TL"
+    report_text += f"\n💰 **Toplam Gider**: {total_spent} TL"
     
     await interaction.response.send_message(report_text, ephemeral=True)
 
-bot.run("token")
+@bot.tree.command(name="son-harcamalar", description="En son yapılan 30 işlemi ve net bakiye durumunu listeler.")
+async def son_harcamalar(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    report_lines, net_balance = logic.get_last_transactions_report(user_id, limit=30)
+    
+    if not report_lines:
+        await interaction.response.send_message("📅 Henüz kayıtlı bir işlemin bulunmuyor.", ephemeral=True)
+        return
+        
+    response_text = f"📜 **Son Yapılan İşlemler (Son 30 Kayıt):**\n\n"
+    response_text += "\n".join(report_lines)
+    response_text += f"\n\n💰 **Net Durum (Gelir - Gider)**: {net_balance} TL"
+    
+    await interaction.response.send_message(response_text, ephemeral=True)
+
+# Botunu çalıştır (Token'ını buraya yazmayı unutma)
+bot.run("BURAYA_DISCORD_BOT_TOKENINI_YAZ")
