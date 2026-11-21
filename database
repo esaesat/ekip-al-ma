@@ -1,0 +1,67 @@
+import sqlite3
+
+class Database:
+    def __init__(self, db_filename="harcamalar.db"):
+        """Veritabanı bağlantısını başlatır ve tabloyu oluşturur."""
+        self.db_filename = db_filename
+        self.conn = None
+        self.cursor = None
+        self.connect()
+        self.create_table()
+
+    def connect(self):
+        """SQLite veritabanına bağlanır."""
+        try:
+            self.conn = sqlite3.connect(self.db_filename)
+            self.cursor = self.conn.cursor()
+            print("Veritabanına başarıyla bağlanıldı!")
+        except sqlite3.Error as e:
+            print(f"Veritabanı bağlantı hatası: {e}")
+
+    def create_table(self):
+        """Harcamalar tablosunu oluşturur (eğer yoksa)."""
+        try:
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS expenses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    category TEXT NOT NULL,
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Tablo oluşturma hatası: {e}")
+
+    def add_expense(self, user_id, amount, category, description):
+        """Veritabanına yeni bir harcama kaydı ekler."""
+        try:
+            self.cursor.execute("""
+                INSERT INTO expenses (user_id, amount, category, description)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, amount, category, description))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Harcama eklenemedi: {e}")
+            return False
+
+    def get_daily_summary(self, user_id):
+        """Bugüne ait harcamaları kategorilere göre gruplayarak getirir."""
+        try:
+            self.cursor.execute("""
+                SELECT category, SUM(amount) FROM expenses
+                WHERE user_id = ? AND DATE(created_at) = DATE('now')
+                GROUP BY category
+            """, (user_id,))
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Özet çekme hatası: {e}")
+            return []
+
+    def __del__(self):
+        """Nesne silindiğinde veritabanı bağlantısını güvenle kapatır."""
+        if self.conn:
+            self.conn.close()
